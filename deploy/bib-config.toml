@@ -1,0 +1,8 @@
+# VM build config for the Hummingbird host that runs File Drop.
+# Defines a login user, or you build a VM you cannot log into.
+# Change the password before any real use.
+
+[[customizations.user]]
+name = "core"
+password = "hummingbird"
+groups = ["wheel"]

@@ -1,0 +1,43 @@
+# File Drop — full stack on Fedora Hummingbird images.
+# restart: always keeps every piece running 24/7 on the Linux host.
+#
+# Run with:  podman-compose up -d
+#
+# The DB password is read from the POSTGRES_PASSWORD environment variable.
+# A demo default is provided for local use only. Set a real value before production:
+#   export POSTGRES_PASSWORD='a-strong-secret'
+
+services:
+  db:
+    image: registry.access.redhat.com/hi/postgresql:17
+    restart: always
+    environment:
+      POSTGRES_USER: filedrop
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme-demo-only}
+      POSTGRES_DB: filedrop
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+  app:
+    build: .
+    restart: always
+    environment:
+      DATABASE_URL: postgresql://filedrop:${POSTGRES_PASSWORD:-changeme-demo-only}@db:5432/filedrop
+    volumes:
+      - file-data:/data          # uploads live here, not on the read-only root
+    depends_on:
+      - db
+
+  proxy:
+    image: registry.access.redhat.com/hi/nginx:latest
+    restart: always
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - app
+
+volumes:
+  db-data:
+  file-data:
