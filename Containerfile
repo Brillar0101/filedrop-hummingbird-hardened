@@ -4,9 +4,10 @@
 
 # --- build stage: install dependencies ---
 FROM registry.access.redhat.com/hi/python:3.11-builder AS build
+USER root
 WORKDIR /app
 COPY requirements.txt .
-RUN pip install --target=/app/deps -r requirements.txt
+RUN mkdir -p /app/deps && pip install --target=/app/deps -r requirements.txt
 
 # --- final stage: distroless, just the app and its deps ---
 FROM registry.access.redhat.com/hi/python:3.11
