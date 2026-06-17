@@ -49,8 +49,8 @@ podman run -d --name app --network "${NET}" --restart=always \
 
 echo ">> Starting nginx (proxy), exposed on host port 8080"
 podman run -d --name proxy --network "${NET}" --restart=always \
-  -p 8080:80 \
-  -v "${APP_SRC}/nginx.conf":/etc/nginx/nginx.conf:ro \
+  -p 8080:8080 \
+  -v "${APP_SRC}/nginx.conf":/etc/nginx/nginx.conf:ro,z \
   "${PROXY_IMAGE}"
 
 echo
