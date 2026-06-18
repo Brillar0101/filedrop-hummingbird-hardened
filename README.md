@@ -1,6 +1,8 @@
-# File Drop on Fedora Hummingbird
+# File Drop on Fedora Hummingbird Linux
 
-A small file-upload service built to run on **Fedora Hummingbird Linux**, 24/7, with near-zero CVEs. Upload a file through a clean web page (or the command line) and get a download link back. This repo is a complete, self-contained example: the app, the architecture, and the deployment.
+A file-upload service built to run on **Fedora Hummingbird Linux**, 24/7, using Hummingbird's `hi/*` container images. Upload a file through a clean web page (or the command line) and get a download link back.
+
+This project demonstrates **how the near-zero CVE goal is implemented**: distroless images, multi-stage builds, non-root containers, and an immutable root filesystem. A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) runs the same app on standard Docker Hub images to show the impact of using container images outside the Hummingbird catalog. Both deploy on the same Hummingbird OS.
 
 ## The stack
 
@@ -16,7 +18,7 @@ The app image is built with a **multi-stage build** (`Containerfile`): dependenc
 ## What's in this folder
 
 ```
-filedrop/
+filedrop-hummingbird/
   README.md            you are here
   ARCHITECTURE.md      the full architecture (components, topology, security, scaling)
   DEMO.md              short "why Hummingbird" write-up
@@ -46,14 +48,24 @@ A stdlib-only stand-in that shows the exact UI and real upload/download. For pre
 
 ```bash
 podman-compose up -d
-# open http://localhost:8080/
+# open http://localhost:8090/
 ```
 
-Builds the app on `hi/python` and runs the full stack on the genuine hardened images.
+Builds the app on `hi/python` and runs the full stack on the Hummingbird images.
 
 ### 3. Deploy on a Hummingbird VM (the real deal)
 
 See [`deploy/README.md`](./deploy/README.md). It builds and boots a Hummingbird VM, then deploys the three-container stack on it. **This step needs a Linux host with KVM (a Fedora machine works perfectly).**
+
+## Verify the CVE posture
+
+Scan the app image to see the actual CVE count:
+
+```bash
+grype filedrop_app:latest
+```
+
+Compare with the [unhardened version](https://github.com/Brillar0101/filedrop-unhardened) to see the difference that distroless Hummingbird images make.
 
 ## Docs
 
@@ -72,7 +84,7 @@ Covers the HTML rendering, including the filename-escaping (XSS) safeguard.
 
 ## Notes
 
-- Image tags checked against the live registry: `hi/python:3.11`, `hi/python:3.11-builder`, `hi/nginx:latest`, `hi/postgresql:17`. Note `hi/postgresql:16` does **not** exist, and `hi/mysql` is **not** in the set (this project uses PostgreSQL on purpose).
+- Image tags checked against the live registry: `hi/python:3.11`, `hi/python:3.11-builder`, `hi/nginx:latest`, `hi/postgresql:17`. Note `hi/postgresql:16` does **not** exist, and `hi/mysql` is **not** in the catalog (this project uses PostgreSQL on purpose).
 - Uploaded files go to the `/data` volume, never the read-only root, so the system stays locked even while it accepts untrusted files.
 - `DATABASE_URL` is required from the environment (no hardcoded secret in the app). Set `POSTGRES_PASSWORD` before any real use.
 - Uploads are streamed to disk and capped at `MAX_UPLOAD_BYTES` (default 50 MB). The app has **no authentication** by design — add a gateway/auth layer before exposing it to untrusted users.

@@ -8,14 +8,18 @@
 
 ## 1. Context
 
-We run a small, internet-facing service that must stay up 24/7, stay patched, and carry as few known security bugs as possible. Hummingbird is the foundation we chose because it ships as ready-made, hardened, distroless OCI images that are immutable at runtime and updated atomically.
+We run a small, internet-facing service that must stay up 24/7, stay patched, and carry as few known security bugs as possible. This project answers three questions about Fedora Hummingbird Linux:
+
+1. **How is the near-zero CVE goal implemented?** — Through Hummingbird's distroless `hi/*` container images, multi-stage builds, and the disciplines they enforce (Sections 4, 6).
+2. **What is the impact of using external container repositories?** — A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) deploys the same app on the same Hummingbird host using standard Docker Hub images. See its `COMPARISON.md` for the side-by-side analysis.
+3. **How does Fedora Hummingbird Linux protect you regardless?** — The host OS provides an immutable root filesystem, atomic updates via `bootc`, instant rollback, and no host-level package manager. These protections apply whether containers are hardened or not (Section 6).
 
 The reference workload is **File Drop**: a file-upload service. A user uploads a file through a web page or the command line and gets back a download link. It is deliberately ordinary — a web app, a reverse proxy, a database, and a place to store files — so the architecture generalizes to most line-of-business services.
 
 **Goals**
 
-- **Secure by default** — distroless images, non-root, read-only root filesystem.
-- **Low CVE** — near-zero known vulnerabilities, verified by scanning every image we build.
+- **Near-zero CVEs** — distroless images with minimal packages, verified by scanning.
+- **Secure by default** — non-root containers, read-only root filesystem, no shell or package manager.
 - **Consistent** — the same image runs in dev, test, and production, with no per-machine drift.
 - **Always on** — survives crashes and reboots, and can be patched and rolled back without long outages.
 
@@ -111,7 +115,7 @@ The progression is intentional: prove the app in a **container**, validate the w
 
 ## 4. Build Pipeline
 
-The central technique is the **multi-stage build** (`Containerfile`). It is what lets a real framework like FastAPI run on a distroless image that has no package manager.
+The central technique is the **multi-stage build** (`Containerfile`). It is what lets a real framework like FastAPI run on a distroless image that has no package manager — and it is the primary mechanism behind the near-zero CVE count.
 
 ```
   +----------------------------------------------------------+
@@ -131,13 +135,15 @@ The central technique is the **multi-stage build** (`Containerfile`). It is what
   +----------------------------------------------------------+
 ```
 
+The builder stage has everything needed to compile and install Python packages. The final stage has nothing except the runtime and the installed dependencies. Build tools, `pip`, and the shell all stay behind in the builder stage. This is the core reason the final image has so few CVEs: there is almost nothing in it to be vulnerable.
+
 **Full pipeline, build to deploy:**
 
-1. **Build** — `podman build -t filedrop_app:latest .` Dependencies are resolved in the builder stage and copied into the distroless final image. The final image contains only the app, its deps, and the minimal Python runtime.
-2. **Scan** — `grype filedrop_app:latest`. This is the gate that protects the near-zero-CVE promise. The image is not promoted if it introduces known vulnerabilities above the policy threshold. Optionally generate an SBOM with `syft` and attach it.
-3. **Sign** — `cosign sign` the image and (optionally) attach the SBOM and Grype scan as signed attestations. Downstream hosts verify the signature before running, so only reviewed, scanned images reach production.
+1. **Build** — `podman build -t filedrop_app:latest .` Dependencies are resolved in the builder stage and copied into the distroless final image.
+2. **Scan** — `grype filedrop_app:latest`. Scan the image and verify the CVE count before promoting it. This is the gate that verifies the near-zero CVE claim — run it and see the actual number.
+3. **Sign** (recommended) — `cosign sign` the image and optionally attach the SBOM and scan results as signed attestations. Downstream hosts can verify the signature before running.
 4. **Publish** — push the signed image to your registry.
-5. **Deploy** — on the Hummingbird host, `podman-compose up -d` pulls the signed images and starts all services with `restart: always`.
+5. **Deploy** — on the Hummingbird host, `podman-compose up -d` pulls the images and starts all services with `restart: always`.
 
 ```
   build (multi-stage) --> grype scan --> cosign sign --> push --> deploy (podman-compose up -d)
@@ -165,7 +171,7 @@ This is the core safety property: the `app` accepts files from untrusted users a
 
 ### Networking
 
-- nginx is the only component that publishes a host port (`8080:80`). App and DB are reached only over Podman's internal network by service name (`app:8080`, `db:5432`) and are not exposed externally.
+- nginx is the only component that publishes a host port (`8090:8080`). App and DB are reached only over Podman's internal network by service name (`app:8080`, `db:5432`) and are not exposed externally.
 - nginx terminates client connections, enforces `client_max_body_size 50m`, and reverse-proxies to the app. TLS termination belongs here in production (mount certs read-only; do not bake them into the image).
 - The app reaches Postgres via `DATABASE_URL`. Secrets (DB password) come from the environment / a secret store, never hardcoded in an image. The sample compose uses a plaintext password for demo only — replace with injected secrets before production.
 
@@ -179,25 +185,37 @@ For VM and bare-metal hosts, the OS is managed as an image, not as a set of file
   sudo bootc rollback   # revert to the previous known-good image
 ```
 
-Updates are **atomic** — they fully apply or not at all, never leaving a half-patched machine. **Rollback** is an instant switch back to the last working image, which is exactly what an always-on, internet-facing service needs. Application containers update the same way conceptually: build a new signed image, scan it, deploy it; if it misbehaves, redeploy the previous tag. Volumes are untouched throughout, so data is never at risk during an update.
+Updates are **atomic** — they fully apply or not at all, never leaving a half-patched machine. **Rollback** is an instant switch back to the last working image. Application containers update the same way conceptually: build a new image, scan it, deploy it; if it misbehaves, redeploy the previous tag. Volumes are untouched throughout, so data is never at risk during an update.
 
 ---
 
 ## 6. Security Model
 
-Defense in depth, with several independent layers:
+Defense in depth, with layers at both the **container level** and the **host OS level**.
 
-1. **Distroless** — the runtime image contains only the app and its dependencies. No shell, no package manager, no general-purpose tools. Smaller attack surface, and nothing handy for an attacker to pivot with if they do get in.
-2. **Non-root (UID 65532)** — every component runs as an unprivileged user (`USER 65532` in the Containerfile). A compromised process has no root on the host.
-3. **Immutable, read-only root** — the running filesystem cannot be modified. No quiet file edits, no drive-by package installs, no configuration drift.
-4. **Near-zero CVE, verified** — images include very little and are scanned (`grype`) before they ship. Few known holes means little for an attacker to exploit. This is a measured property, re-checked on every build, not a one-time claim.
-5. **Signed provenance** — `cosign` signatures (and optional SBOM/scan attestations) let hosts verify that only reviewed, scanned images run.
-6. **Network minimization** — only the proxy is exposed; app and database stay on the internal network.
+### Container-level protections (from Hummingbird images)
+
+These protections come from using `hi/*` images and the multi-stage build discipline:
+
+1. **Distroless** — the runtime image contains only the app and its dependencies. No shell, no package manager, no general-purpose tools. Fewer packages means fewer CVEs and a smaller attack surface.
+2. **Non-root (UID 65532)** — every component runs as an unprivileged user. A compromised process has no root on the host.
+3. **Immutable, read-only root** — the running container filesystem cannot be modified. No quiet file edits, no drive-by package installs, no configuration drift.
+4. **Near-zero CVEs, verified** — images include very little and are scanned (`grype`) before promotion. This is a measured property, verified on every build, not a one-time claim.
+
+### Host OS-level protections (from Fedora Hummingbird Linux)
+
+These protections come from the Hummingbird host OS itself and apply regardless of what container images run inside:
+
+1. **Immutable host root filesystem** — the host OS root is read-only. Even if an attacker escapes a container, they cannot modify the host OS, install rootkits, or create persistence.
+2. **Atomic OS updates (bootc)** — the host updates as a whole image. No partial patches, no inconsistent state, no drift between machines.
+3. **Instant rollback** — `bootc rollback` reverts to the previous known-good OS image. Critical for always-on services.
+4. **No host-level package manager** — you cannot `dnf install` on a running Hummingbird host. The host is image-based; what ships in the image is what runs.
+5. **Network minimization** — only the proxy is exposed; app and database stay on the internal network. This is a deployment choice enforced by the compose/podman configuration.
 
 ### What breaks the promise (call these out in review)
 
 - **Installing extra packages at runtime** — impossible by design, and pulling outside software back in re-introduces CVEs. If you need something, build it into a fresh, scanned image instead.
-- **Adding software with unknown provenance** in the builder stage — scan and sign, or you have silently widened the attack surface.
+- **Adding software with unknown provenance** in the builder stage — scan the result, or you have silently widened the attack surface.
 - **Running as root** or mounting volumes with broad write access undermines the non-root and read-only guarantees.
 - **Baking secrets or certs into images** — these belong in injected environment/secret stores and read-only mounts.
 - **Treating volumes as trusted** — `/data` holds untrusted uploads; the app must still validate input, enforce size/type limits, and never execute uploaded content.
@@ -209,7 +227,7 @@ Defense in depth, with several independent layers:
 Scaling is horizontal and drift-free because every host runs the **exact same image**.
 
 - **More throughput, same host** — run additional `app` replicas behind nginx (nginx `upstream` already fronts the app; add servers to the upstream pool). The app is stateless: file bytes go to the shared `/data` volume and metadata to Postgres, so replicas are interchangeable.
-- **More hosts** — deploy the same signed images to many Hummingbird hosts behind a load balancer. Because images are immutable and identical, there is no per-machine drift: host #1 and host #100 are byte-for-byte the same. This is the central operational win over hand-built servers.
+- **More hosts** — deploy the same images to many Hummingbird hosts behind a load balancer. Because images are immutable and identical, there is no per-machine drift: host #1 and host #100 are byte-for-byte the same. This is the central operational win over hand-built servers.
 - **Shared state as you grow** — the single-host volume model (one `/data`, one Postgres) is the first bottleneck when you go multi-host. The path forward: move uploads to shared/object storage and run Postgres as a dedicated, replicated service (or managed database) that all app hosts connect to. The app and proxy tiers stay stateless and scale freely; the data tier is scaled separately.
 - **Patching at scale** — `bootc upgrade` rolls a new OS image across the fleet atomically, with `bootc rollback` as the safety net. The same image everywhere means one validated update applies uniformly.
 
@@ -221,8 +239,8 @@ Scaling is horizontal and drift-free because every host runs the **exact same im
 
 - **Context:** App needs a relational database.
 - **Decision:** Use `hi/postgresql:17`.
-- **Why:** We checked the registry directly — there is **no `hi/mysql` image**. PostgreSQL is the supported relational database with a verified image (`:17` or `:latest`; note `:16` does not exist).
-- **Trade-off / limitation:** If a team standard mandates MySQL, Hummingbird is not a clean fit. You would either port to PostgreSQL, or run MySQL elsewhere and accept that it will **not** carry the near-zero-CVE guarantee. Recommendation: port to PostgreSQL.
+- **Why:** There is **no `hi/mysql` image** in the Hummingbird catalog. PostgreSQL is the supported relational database with a verified image (`:17` or `:latest`; note `:16` does not exist).
+- **Trade-off / limitation:** If a team standard mandates MySQL, there is no Hummingbird image for it. You would either port to PostgreSQL, or run MySQL from an external repository and accept that it will not carry the near-zero CVE benefit. The companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) demonstrates this scenario.
 
 ### ADR-2: Multi-stage build instead of a runtime package manager
 
@@ -240,21 +258,23 @@ Scaling is horizontal and drift-free because every host runs the **exact same im
 
 - **Decision:** Default to containers via `compose.yaml`; offer VM and bare-metal using the same images.
 - **Pros:** Fastest start, identical images across all modes, safe evaluation in a throwaway VM before committing hardware.
-- **Cons:** Bare-metal/VM steps depend on newer `bootc` tooling that is less battle-tested; confirm exact commands against current docs and test on spare hardware first.
+- **Cons:** Bare-metal/VM steps depend on newer `bootc` tooling; confirm exact commands against current docs and test on spare hardware first.
 
 ### Honest limitations to plan around
 
 - **Debugging is different.** No shell in the image means you cannot `exec` in and poke around the normal way. You debug by attaching a **temporary helper/sidecar container** that has tools, used only when needed and never baked into the production image. Train the team on this before go-live.
 - **Monitoring/security agents that modify the host won't work.** Anything that expects to install itself onto the OS or write to the root filesystem is incompatible. Use **sidecar containers** or agentless/remote collection, and read metrics/logs over the network instead of from inside the sealed image.
-- **No live patching.** Every change — app dependency or OS — is a new image: build, scan, sign, deploy. Faster mean-time-to-deploy, but no quick in-place edits.
+- **No live patching.** Every change — app dependency or OS — is a new image: build, scan, deploy. Faster mean-time-to-deploy, but no quick in-place edits.
 - **Single-host state is the scaling ceiling.** The shared `/data` volume and single Postgres must become shared/object storage and a replicated database before true multi-host scale-out.
-- **Hummingbird is new.** Container image tags here are verified against the live registry; the `bootc` VM/bare-metal commands use standard tooling but should be confirmed against current docs before you rely on them in production.
+- **Hummingbird is new.** Container image tags here are verified against the live registry; the `bootc` VM/bare-metal commands use standard tooling but should be confirmed against current docs before production.
 
 ---
 
 ## Summary
 
-For an always-on, internet-facing service, Hummingbird gives us hardened, distroless, immutable images with near-zero verified CVEs, atomic updates, and instant rollback — and the **same image** runs as a container, a VM, or a full server with no drift. The reference File Drop app (this folder) shows the whole pattern end to end: a multi-stage build onto `hi/python`, fronted by `hi/nginx`, backed by `hi/postgresql:17`, with all untrusted and durable state confined to volumes. The price of admission is discipline — build-don't-patch, PostgreSQL not MySQL, sidecar-based debugging and monitoring — and those constraints are exactly what deliver the security and consistency we are after.
+Fedora Hummingbird Linux delivers near-zero CVEs through two layers of protection. At the **container level**, distroless `hi/*` images strip out everything the app doesn't need — no shell, no package manager, no unused system libraries — so there is almost nothing left to be vulnerable. At the **host OS level**, the immutable root filesystem, atomic updates via `bootc`, instant rollback, and the absence of a host-level package manager protect the system regardless of what containers run inside.
+
+The reference File Drop app (this folder) shows the container-level pattern end to end: a multi-stage build onto `hi/python`, fronted by `hi/nginx`, backed by `hi/postgresql:17`, with all untrusted and durable state confined to volumes. The price of admission is discipline — build-don't-patch, PostgreSQL not MySQL, sidecar-based debugging and monitoring — and those constraints are exactly what deliver the security and consistency.
 
 ## Relevant files
 
