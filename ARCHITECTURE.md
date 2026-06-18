@@ -53,53 +53,7 @@ This maps directly to the existing `compose.yaml`: three services (`db`, `app`, 
 
 The default and recommended topology is **three containers on one Hummingbird host**, orchestrated by Podman (via `podman-compose`). The same images can also run inside a Hummingbird VM or on bare metal — the container layout is identical in all three because they share the same OCI images.
 
-```
-                          Internet / LAN
-                                |
-                                | :8080 (host port -> proxy :80)
-        ========================|=====================================
-        |   HUMMINGBIRD HOST (container / VM / bare metal)            |
-        |   Podman, restart: always on every service                 |
-        |                                                            |
-        |   +----------------------+                                 |
-        |   |  proxy               |  image: hi/nginx:latest         |
-        |   |  nginx :80           |  read-only root, non-root 65532 |
-        |   |  client_max_body 50m |  nginx.conf mounted :ro         |
-        |   +----------+-----------+                                 |
-        |              | proxy_pass http://app:8080                  |
-        |              v   (podman internal network)                 |
-        |   +----------------------+                                 |
-        |   |  app                 |  image: built on hi/python:3.11 |
-        |   |  FastAPI / Uvicorn   |  multi-stage build, no pip      |
-        |   |  :8080               |  read-only root, non-root 65532 |
-        |   +----+------------+----+                                 |
-        |        |            |                                      |
-        |        |            | writes uploaded bytes                |
-        |        |            v                                      |
-        |        |     +--------------+   volume: file-data          |
-        |        |     |  /data       |   (writable, survives        |
-        |        |     |  (uploads)   |    updates & restarts)       |
-        |        |     +--------------+                              |
-        |        |                                                   |
-        |        | DATABASE_URL=postgresql://...@db:5432/filedrop    |
-        |        v                                                   |
-        |   +----------------------+                                 |
-        |   |  db                  |  image: hi/postgresql:17        |
-        |   |  PostgreSQL :5432    |  read-only root + data volume   |
-        |   +----------+-----------+                                 |
-        |              |                                             |
-        |              v                                             |
-        |        +--------------------------+  volume: db-data       |
-        |        | /var/lib/postgresql/data |  (writable, durable)   |
-        |        +--------------------------+                        |
-        |                                                            |
-        ==============================================================
-
-  Three run modes, same images underneath:
-    [ Container ]  Podman on an existing Linux box        (fastest start)
-    [ VM ]         bootc-image-builder -> qcow2 -> KVM    (safe evaluation)
-    [ Bare metal ] bootc install to-disk -> dedicated HW  (production)
-```
+![Deployment topology — proxy (hi/nginx), app (hi/python:3.11), db (hi/postgresql:17) on a Hummingbird host with file-data and db-data volumes](screenshots/deployment_topology_hummingbird.png)
 
 **Traffic flow:** client -> host port 8080 -> nginx (`proxy`) -> `app:8080` (Uvicorn) -> Postgres (`db:5432`) for metadata and the `/data` volume for file bytes.
 
@@ -117,23 +71,7 @@ The progression is intentional: prove the app in a **container**, validate the w
 
 The central technique is the **multi-stage build** (`Containerfile`). It is what lets a real framework like FastAPI run on a distroless image that has no package manager — and it is the primary mechanism behind the near-zero CVE count.
 
-```
-  +----------------------------------------------------------+
-  | Stage 1: BUILD  (hi/python:3.11-builder)                 |
-  |   - has pip and build tooling                            |
-  |   - pip install --target=/app/deps -r requirements.txt   |
-  +-----------------------------+----------------------------+
-                                | COPY --from=build /app/deps
-                                v
-  +----------------------------------------------------------+
-  | Stage 2: FINAL  (hi/python:3.11, distroless)             |
-  |   - no pip, no shell, no package manager                 |
-  |   - COPY deps + app code                                 |
-  |   - ENV PYTHONPATH=/app/deps                             |
-  |   - USER 65532  (non-root)                               |
-  |   - CMD uvicorn main:app --host 0.0.0.0 --port 8080      |
-  +----------------------------------------------------------+
-```
+![Multi-stage build — builder stage installs deps with pip, final distroless stage carries only app code and deps](screenshots/multistage_build_pipeline_hummingbird.png)
 
 The builder stage has everything needed to compile and install Python packages. The final stage has nothing except the runtime and the installed dependencies. Build tools, `pip`, and the shell all stay behind in the builder stage. This is the core reason the final image has so few CVEs: there is almost nothing in it to be vulnerable.
 
