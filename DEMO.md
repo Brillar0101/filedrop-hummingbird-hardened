@@ -111,7 +111,7 @@ grype filedrop_app:latest
 
 The near-zero CVE claim is verified by scanning, not taken on faith. The vulnerabilities that do appear come from the Python dependencies, not from unused OS packages — because there are no unused OS packages.
 
-**The comparison:** A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) runs the same app on the same Hummingbird host, but using standard Docker Hub images (node:22, httpd, mysql:8). Scan that image too and compare the CVE counts. The difference comes from the base images, not the application code.
+**The comparison:** A companion project ([filedrop-hummingbird-unhardened](https://github.com/Brillar0101/filedrop-hummingbird-unhardened)) runs the same app on the same Hummingbird host, but using standard Docker Hub images (node:22, httpd, mysql:8). Scan that image too and compare the CVE counts. The difference comes from the base images, not the application code.
 
 ---
 

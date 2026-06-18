@@ -11,7 +11,7 @@
 We run a small, internet-facing service that must stay up 24/7, stay patched, and carry as few known security bugs as possible. This project answers three questions about Fedora Hummingbird Linux:
 
 1. **How is the near-zero CVE goal implemented?** — Through Hummingbird's distroless `hi/*` container images, multi-stage builds, and the disciplines they enforce (Sections 4, 6).
-2. **What is the impact of using external container repositories?** — A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) deploys the same app on the same Hummingbird host using standard Docker Hub images. See its `COMPARISON.md` for the side-by-side analysis.
+2. **What is the impact of using external container repositories?** — A companion project ([filedrop-hummingbird-unhardened](https://github.com/Brillar0101/filedrop-hummingbird-unhardened)) deploys the same app on the same Hummingbird host using standard Docker Hub images. See its `COMPARISON.md` for the side-by-side analysis.
 3. **How does Fedora Hummingbird Linux protect you regardless?** — The host OS provides an immutable root filesystem, atomic updates via `bootc`, instant rollback, and no host-level package manager. These protections apply whether containers are hardened or not (Section 6).
 
 The reference workload is **File Drop**: a file-upload service. A user uploads a file through a web page or the command line and gets back a download link. It is deliberately ordinary — a web app, a reverse proxy, a database, and a place to store files — so the architecture generalizes to most line-of-business services.
@@ -178,7 +178,7 @@ Scaling is horizontal and drift-free because every host runs the **exact same im
 - **Context:** App needs a relational database.
 - **Decision:** Use `hi/postgresql:17`.
 - **Why:** There is **no `hi/mysql` image** in the Hummingbird catalog. PostgreSQL is the supported relational database with a verified image (`:17` or `:latest`; note `:16` does not exist).
-- **Trade-off / limitation:** If a team standard mandates MySQL, there is no Hummingbird image for it. You would either port to PostgreSQL, or run MySQL from an external repository and accept that it will not carry the near-zero CVE benefit. The companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) demonstrates this scenario.
+- **Trade-off / limitation:** If a team standard mandates MySQL, there is no Hummingbird image for it. You would either port to PostgreSQL, or run MySQL from an external repository and accept that it will not carry the near-zero CVE benefit. The companion project ([filedrop-hummingbird-unhardened](https://github.com/Brillar0101/filedrop-hummingbird-unhardened)) demonstrates this scenario.
 
 ### ADR-2: Multi-stage build instead of a runtime package manager
 

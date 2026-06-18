@@ -2,7 +2,7 @@
 
 A file-upload service built to run on **Fedora Hummingbird Linux**, 24/7, using Hummingbird's `hi/*` container images. Upload a file through a clean web page (or the command line) and get a download link back.
 
-This project demonstrates **how the near-zero CVE goal is implemented**: distroless images, multi-stage builds, non-root containers, and an immutable root filesystem. A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) runs the same app on standard Docker Hub images to show the impact of using container images outside the Hummingbird catalog. Both deploy on the same Hummingbird OS.
+This project demonstrates **how the near-zero CVE goal is implemented**: distroless images, multi-stage builds, non-root containers, and an immutable root filesystem. A companion project ([filedrop-hummingbird-unhardened](https://github.com/Brillar0101/filedrop-hummingbird-unhardened)) runs the same app on standard Docker Hub images to show the impact of using container images outside the Hummingbird catalog. Both deploy on the same Hummingbird OS.
 
 ## The stack
 
@@ -65,7 +65,7 @@ Scan the app image to see the actual CVE count:
 grype filedrop_app:latest
 ```
 
-Compare with the [unhardened version](https://github.com/Brillar0101/filedrop-unhardened) to see the difference that distroless Hummingbird images make.
+Compare with the [unhardened version](https://github.com/Brillar0101/filedrop-hummingbird-unhardened) to see the difference that distroless Hummingbird images make.
 
 ## Docs
 
