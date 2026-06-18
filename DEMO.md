@@ -51,6 +51,14 @@ sudo bootc rollback                  # revert if it breaks
 
 The host OS is **read-only and image-based**. You do not install packages on it. You do not edit config files on it. You run your workload as containers, using images from the Hummingbird catalog (`hi/*`). The OS updates atomically as a versioned image, not file-by-file.
 
+This is what it looks like in practice. The `bootc status` command confirms the VM is running the Hummingbird OS image:
+
+![bootc status showing the Hummingbird OS image](screenshots/hb-bootc-status.png)
+
+And when you try to install a package with `dnf`, the system refuses — the root filesystem is read-only:
+
+![dnf install blocked — the bootc system is configured to be read-only](screenshots/hb-dnf-blocked.png)
+
 ---
 
 ## Running a real framework on a distroless image
@@ -81,17 +89,17 @@ This is the part worth showing in a demo, because it proves a real stack works h
 
 ## The demo
 
-The whole stack runs from one file (`compose.yaml`), and every piece uses `restart: always` so it keeps running 24/7.
+After deploying the stack on a Hummingbird VM (see `deploy/README.md`), three containers are running — all on Hummingbird `hi/*` images:
 
-```bash
-podman-compose up -d
-```
+![podman ps showing db, app, and proxy containers running on hi/* images](screenshots/hb-podman-ps.png)
 
-Open `http://<server>:8090/` and you get a clean page: pick a file, click Upload, and it appears in the list with a download link. Or upload from the terminal:
+Notice the image sizes — the distroless Hummingbird images are small because they carry only what the app needs:
 
-```bash
-python3 client.py ./notes.txt
-```
+![podman images showing hi/* images between 51 MB and 196 MB](screenshots/hb-podman-images.png)
+
+Open the browser and the File Drop UI is live — upload a file and get a download link:
+
+![File Drop web UI running on Hummingbird with uploaded files](screenshots/hb-ui.png)
 
 **The proof — scan the image:**
 
@@ -99,7 +107,9 @@ python3 client.py ./notes.txt
 grype filedrop_app:latest
 ```
 
-The near-zero CVE claim is verified by scanning, not taken on faith. Run the scan and see the actual number.
+![grype scan of the hummingbird app image showing minimal CVEs](screenshots/hb-grype-scan.png)
+
+The near-zero CVE claim is verified by scanning, not taken on faith. The vulnerabilities that do appear come from the Python dependencies, not from unused OS packages — because there are no unused OS packages.
 
 **The comparison:** A companion project ([filedrop-unhardened](https://github.com/Brillar0101/filedrop-unhardened)) runs the same app on the same Hummingbird host, but using standard Docker Hub images (node:22, httpd, mysql:8). Scan that image too and compare the CVE counts. The difference comes from the base images, not the application code.
 
