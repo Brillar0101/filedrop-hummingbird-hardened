@@ -8,16 +8,16 @@ This is the turnkey implementation of **Architecture option: VM mode** (see `../
 
 The architecture's three containers on one Hummingbird host:
 
-- `proxy` — `hi/nginx:latest`, the only exposed port (8080)
-- `app` — File Drop (FastAPI), built multi-stage on `hi/python:3.11`
-- `db` — `hi/postgresql:17`
+- `proxy`: `hi/nginx:latest`, the only exposed port (8080)
+- `app`: File Drop (FastAPI), built multi-stage on `hi/python:3.11`
+- `db`: `hi/postgresql:17`
 - volumes `file-data` (/data uploads) and `db-data` (Postgres data)
 
 ## Files
 
-- `bib-config.toml` — the VM build config (defines the `core` login user)
-- `01-build-and-boot-vm.sh` — build the bootable image and boot the VM (run on the Linux/KVM host)
-- `02-deploy-filedrop.sh` — deploy the stack with plain `podman` (run inside the VM)
+- `bib-config.toml`, the VM build config (defines the `core` login user)
+- `01-build-and-boot-vm.sh`, build the bootable image and boot the VM (run on the Linux/KVM host)
+- `02-deploy-filedrop.sh`, deploy the stack with plain `podman` (run inside the VM)
 
 ## On Fedora: prerequisites (do this first)
 

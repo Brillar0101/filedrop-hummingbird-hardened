@@ -12,7 +12,7 @@ The `bootc status` command confirms the VM is running the Hummingbird OS image:
 
 And when you try to install a package with `dnf`, the system refuses. The root filesystem is read-only:
 
-![dnf install blocked — the bootc system is configured to be read-only](screenshots/hb-dnf-blocked.png)
+![dnf install blocked: the bootc system is configured to be read-only](screenshots/hb-dnf-blocked.png)
 
 ## The running stack
 
