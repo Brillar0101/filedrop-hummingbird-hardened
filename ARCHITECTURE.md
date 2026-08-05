@@ -26,7 +26,26 @@ The app image carries no package manager. Dependencies are baked in at build tim
 
 Three containers on one Hummingbird host, orchestrated by Podman (via `podman-compose`). The same images can also run inside a Hummingbird VM or on bare metal. The container layout is identical because they share the same OCI images.
 
-![Deployment topology — proxy (hi/nginx), app (hi/python:3.11), db (hi/postgresql:17) on a Hummingbird host with file-data and db-data volumes](screenshots/deployment_topology_hummingbird.png)
+```mermaid
+flowchart LR
+    CLIENT["Browser or<br>client.py"] -->|":8080"| NGINX
+
+    subgraph host["Fedora Hummingbird host: read-only root, bootc-managed"]
+        NGINX["nginx proxy<br>hi/nginx"] -->|"proxy_pass"| APP["FastAPI + Uvicorn<br>hi/python:3.11 (distroless)"]
+        APP -->|"metadata"| DB["PostgreSQL<br>hi/postgresql:17"]
+        APP -->|"file bytes"| FVOL[("file-data volume<br>/data")]
+        DB --> DVOL[("db-data volume")]
+    end
+
+    classDef pfBlue fill:#E7F1FA,stroke:#0066CC,color:#151515
+    classDef pfGold fill:#FDF7E7,stroke:#F0AB00,color:#151515
+    classDef pfGreen fill:#F3FAF2,stroke:#3E8635,color:#151515
+    classDef pfGray fill:#F0F0F0,stroke:#6A6E73,color:#151515
+    class CLIENT pfBlue
+    class NGINX pfGold
+    class APP pfGreen
+    class DB,FVOL,DVOL pfGray
+```
 
 Traffic flow: client -> host port 8080 -> nginx (proxy) -> app:8080 (Uvicorn) -> Postgres (db:5432) for metadata and the `/data` volume for file bytes.
 
@@ -36,7 +55,28 @@ nginx is the only component that publishes a host port. App and database are rea
 
 The central technique is the multi-stage build (`Containerfile`). It lets a real framework like FastAPI run on a distroless image that has no package manager, and it's the primary mechanism behind the near-zero CVE count.
 
-![Multi-stage build — builder stage installs deps with pip, final distroless stage carries only app code and deps](screenshots/multistage_build_pipeline_hummingbird.png)
+```mermaid
+flowchart LR
+    subgraph builder["Builder stage: hi/python:3.11-builder"]
+        direction LR
+        REQ["requirements.txt"] --> PIP["pip install<br>(pip, compilers, shell<br>all live here)"]
+    end
+
+    subgraph final["Final stage: hi/python:3.11 (distroless)"]
+        direction LR
+        DEPS["site-packages<br>copied from builder"] --> CODE["app/main.py"] --> RUN["runtime image:<br>no pip, no shell,<br>no package manager"]
+    end
+
+    PIP -->|"COPY --from=builder"| DEPS
+    PIP -.->|"left behind:<br>pip, build tools, shell"| GONE["discarded with<br>the builder stage"]
+
+    classDef pfGold fill:#FDF7E7,stroke:#F0AB00,color:#151515
+    classDef pfGreen fill:#F3FAF2,stroke:#3E8635,color:#151515
+    classDef pfRed fill:#FAEAE8,stroke:#C9190B,color:#151515
+    class REQ,PIP pfGold
+    class DEPS,CODE,RUN pfGreen
+    class GONE pfRed
+```
 
 The builder stage has everything needed to compile and install Python packages. The final stage has nothing except the runtime and the installed dependencies. Build tools, `pip`, and the shell all stay behind in the builder stage. This is the core reason the final image has so few CVEs: there is almost nothing in it to be vulnerable.
 
